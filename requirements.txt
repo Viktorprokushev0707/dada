@@ -1,0 +1,6 @@
+python-telegram-bot[job-queue]==21.6
+aiosqlite==0.20.0
+gspread==6.1.2
+google-auth==2.34.0
+pydantic-settings==2.5.2
+pytz==2024.2
