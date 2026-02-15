@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}{{ participant.display_name }} — Панель управления{% endblock %}
+
+{% block content %}
+<a href="/" class="back-link">← Назад к списку</a>
+
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="label">Участник</div>
+        <div class="value" style="font-size: 1.25rem;">{{ participant.display_name }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Telegram ID</div>
+        <div class="value" style="font-size: 1.25rem;">{{ participant.telegram_user_id }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Сообщений сегодня</div>
+        <div class="value">{{ today_messages | length }}</div>
+    </div>
+</div>
+
+{% if today_messages %}
+<div class="card">
+    <h2>Сообщения за сегодня ({{ today }})</h2>
+    {% for msg in today_messages %}
+    <div class="message-block">
+        <div class="time">{{ msg.created_at }}</div>
+        <div style="margin-top: 0.25rem;">{{ msg.message_text }}</div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>Записи дневника (последние 30)</h2>
+    {% if entries %}
+    <table>
+        <thead>
+            <tr>
+                <th>Дата</th>
+                <th>Время</th>
+                <th>Статус</th>
+                <th>Синхр.</th>
+                <th>Текст</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in entries %}
+            <tr>
+                <td>{{ e.entry_date }}</td>
+                <td>{{ e.entry_time or '—' }}</td>
+                <td>
+                    {% if e.status == 'вовремя' %}
+                        <span class="badge badge-green">{{ e.status }}</span>
+                    {% elif e.status == 'поздно' %}
+                        <span class="badge badge-yellow">{{ e.status }}</span>
+                    {% elif e.status == 'пропущено' %}
+                        <span class="badge badge-red">{{ e.status }}</span>
+                    {% else %}
+                        <span class="badge badge-gray">{{ e.status }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if e.synced_to_sheet %}
+                        <span class="badge badge-green">да</span>
+                    {% else %}
+                        <span class="badge badge-gray">нет</span>
+                    {% endif %}
+                </td>
+                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    {{ (e.full_text or '—')[:100] }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #888; text-align: center; padding: 2rem;">Нет записей дневника</p>
+    {% endif %}
+</div>
+{% endblock %}

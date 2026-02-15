@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Вход — Панель управления{% endblock %}
+
+{% block nav_right %}{% endblock %}
+
+{% block content %}
+<div style="max-width: 380px; margin: 4rem auto;">
+    <div class="card" style="text-align: center;">
+        <h2 style="margin-bottom: 1.5rem;">Вход в панель</h2>
+        {% if error %}
+        <div style="background: #fee2e2; color: #991b1b; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.9rem;">
+            {{ error }}
+        </div>
+        {% endif %}
+        <form method="post" action="/login">
+            <div style="margin-bottom: 1rem;">
+                <input type="text" name="username" placeholder="Логин" required
+                       style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem;">
+            </div>
+            <div style="margin-bottom: 1.5rem;">
+                <input type="password" name="password" placeholder="Пароль" required
+                       style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem;">
+            </div>
+            <button type="submit"
+                    style="width: 100%; padding: 0.75rem; background: #1a1a2e; color: #fff; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer;">
+                Войти
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

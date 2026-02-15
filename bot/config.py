@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     reminder_minute: int = 0
     escalation_delay_minutes: int = 60
 
+    # Web admin panel
+    admin_username: str = "admin"
+    admin_password: str = "changeme"
+    port: int = 8080  # Railway sets PORT automatically
+    web_port: int = 0  # If set, overrides PORT
+    secret_key: str = "change-this-secret-key-in-production"
+
+    def get_web_port(self) -> int:
+        return self.web_port if self.web_port else self.port
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     def get_google_credentials_path(self) -> str:

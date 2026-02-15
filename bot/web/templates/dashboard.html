@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — Панель управления{% endblock %}
+
+{% block content %}
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="label">Участников</div>
+        <div class="value">{{ total_participants }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Написали сегодня</div>
+        <div class="value">{{ participants | selectattr('today_messages', 'gt', 0) | list | length }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Не написали сегодня</div>
+        <div class="value">{{ participants | selectattr('today_messages', 'eq', 0) | list | length }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Участники — {{ today }}</h2>
+    {% if participants %}
+    <table>
+        <thead>
+            <tr>
+                <th>Имя</th>
+                <th>Чат ID</th>
+                <th>Вкладка</th>
+                <th>Сегодня</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in participants %}
+            <tr>
+                <td><strong>{{ p.display_name }}</strong></td>
+                <td style="font-size: 0.85rem; color: #888;">{{ p.chat_id }}</td>
+                <td style="font-size: 0.85rem;">{{ p.sheet_tab_name }}</td>
+                <td>
+                    {% if p.today_messages > 0 %}
+                        <span class="badge badge-green">{{ p.today_messages }} сообщ.</span>
+                    {% else %}
+                        <span class="badge badge-red">нет записей</span>
+                    {% endif %}
+                </td>
+                <td><a href="/participant/{{ p.id }}">Подробнее</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #888; text-align: center; padding: 2rem;">Нет зарегистрированных участников</p>
+    {% endif %}
+</div>
+{% endblock %}
