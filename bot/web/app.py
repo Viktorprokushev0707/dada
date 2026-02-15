@@ -18,11 +18,10 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 def _make_cookie_key(secret: str) -> bytes:
-    """Derive a 32-byte Fernet key from the secret string for cookie encryption."""
+    """Derive a 32-byte key from the secret string for cookie encryption."""
     import hashlib
-    # Use SHA-256 to get exactly 32 bytes from any secret string
-    raw = hashlib.sha256(secret.encode("utf-8")).digest()
-    return base64.urlsafe_b64encode(raw)
+    # SHA-256 gives exactly 32 raw bytes; EncryptedCookieStorage will base64-encode them
+    return hashlib.sha256(secret.encode("utf-8")).digest()
 
 
 def create_web_app() -> web.Application:
