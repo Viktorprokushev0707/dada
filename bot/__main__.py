@@ -43,28 +43,31 @@ async def post_shutdown(application) -> None:
 
 
 async def run_bot(stop_event: asyncio.Event) -> None:
-    """Run Telegram bot with automatic retry on conflict errors."""
-    bot_app = (
-        ApplicationBuilder()
-        .token(settings.telegram_bot_token)
-        .post_init(post_init)
-        .post_shutdown(post_shutdown)
-        .build()
-    )
+    """Run Telegram bot with automatic retry on conflict errors.
 
-    bot_app.add_handler(CommandHandler("setup", setup_command))
-    bot_app.add_handler(CommandHandler("list", list_command))
-    bot_app.add_handler(CommandHandler("status", status_command))
-    bot_app.add_handler(
-        MessageHandler(
-            filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND,
-            collect_message,
-        )
-    )
-
+    DB is managed by run_all(), not here — so web panel survives bot crashes.
+    """
     retry_delay = 5
     while not stop_event.is_set():
         try:
+            bot_app = (
+                ApplicationBuilder()
+                .token(settings.telegram_bot_token)
+                .build()
+            )
+
+            bot_app.add_handler(CommandHandler("setup", setup_command))
+            bot_app.add_handler(CommandHandler("list", list_command))
+            bot_app.add_handler(CommandHandler("status", status_command))
+            bot_app.add_handler(
+                MessageHandler(
+                    filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND,
+                    collect_message,
+                )
+            )
+
+            register_jobs(bot_app)
+
             async with bot_app:
                 await bot_app.start()
                 logger.info("Telegram bot polling started.")
@@ -76,7 +79,7 @@ async def run_bot(stop_event: asyncio.Event) -> None:
                 logger.info("Shutting down bot...")
                 await bot_app.updater.stop()
                 await bot_app.stop()
-            break
+            break  # clean shutdown
         except Exception as exc:
             logger.error("Telegram bot error: %s. Retrying in %ds...", exc, retry_delay)
             await asyncio.sleep(retry_delay)
