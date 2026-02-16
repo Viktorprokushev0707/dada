@@ -29,6 +29,36 @@ class SheetsService:
             self._spreadsheets[sid] = gc.open_by_key(sid)
         return self._spreadsheets[sid]
 
+    def get_service_account_email(self) -> str:
+        """Return the service account email for sharing instructions."""
+        gc = self._get_client()
+        return gc.auth.service_account_email
+
+    def check_access(self, spreadsheet_id: str) -> tuple[bool, str]:
+        """Check if service account can access the spreadsheet.
+
+        Returns (success, message).
+        """
+        try:
+            gc = self._get_client()
+            sp = gc.open_by_key(spreadsheet_id)
+            title = sp.title
+            # Cache it for later use
+            self._spreadsheets[spreadsheet_id] = sp
+            return True, f"Доступ к таблице «{title}» подтверждён."
+        except gspread.SpreadsheetNotFound:
+            email = self.get_service_account_email()
+            return False, (
+                f"Таблица не найдена или нет доступа.\n"
+                f"Откройте таблицу в Google Sheets и дайте доступ "
+                f"(Редактор) этому email:\n\n"
+                f"<code>{email}</code>"
+            )
+        except gspread.exceptions.APIError as e:
+            return False, f"Ошибка Google API: {e}"
+        except Exception as e:
+            return False, f"Ошибка подключения: {type(e).__name__}: {e}"
+
     def ensure_tab(self, tab_name: str, spreadsheet_id: str | None = None) -> None:
         """Create worksheet tab if it doesn't exist, with header row."""
         spreadsheet = self._get_spreadsheet(spreadsheet_id)

@@ -7,6 +7,8 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
+import gspread
+
 from bot import db
 from bot.services.sheets import sheets_service
 
@@ -74,12 +76,32 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Create Google Sheets tab in study's spreadsheet
     try:
         await asyncio.to_thread(sheets_service.ensure_tab, tab_name_final, spreadsheet_id)
-    except Exception:
+    except gspread.SpreadsheetNotFound:
+        try:
+            email = sheets_service.get_service_account_email()
+        except Exception:
+            email = "(не удалось получить)"
+        logger.exception("Spreadsheet %s not found or no access", spreadsheet_id)
+        await message.reply_html(
+            "Таблица не найдена или нет доступа.\n\n"
+            "Откройте Google таблицу → Настройки доступа → "
+            "добавьте как <b>Редактор</b>:\n"
+            f"<code>{email}</code>\n\n"
+            "После этого повторите /setup."
+        )
+        return
+    except gspread.exceptions.APIError as e:
+        logger.exception("Google API error for spreadsheet %s", spreadsheet_id)
+        await message.reply_text(
+            f"Ошибка Google API: {e}\n"
+            "Возможно, нет прав на редактирование таблицы."
+        )
+        return
+    except Exception as e:
         logger.exception("Failed to create Sheets tab for spreadsheet %s", spreadsheet_id)
         await message.reply_text(
-            "Не удалось создать вкладку в Google Sheets.\n"
-            "Проверьте, что сервисный аккаунт имеет доступ к таблице.\n"
-            "Попробуйте /setup ещё раз после проверки."
+            f"Не удалось создать вкладку: {type(e).__name__}: {e}\n"
+            "Попробуйте /setup ещё раз."
         )
         return
 

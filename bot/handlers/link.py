@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from bot import db
+from bot.services.sheets import sheets_service
 
 logger = logging.getLogger(__name__)
 
@@ -83,11 +85,32 @@ async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
+    # Verify access to the spreadsheet before linking
+    status_msg = await message.reply_text("Проверяю доступ к Google таблице...")
+    try:
+        ok, check_msg = await asyncio.to_thread(
+            sheets_service.check_access, study["spreadsheet_id"]
+        )
+    except Exception as e:
+        logger.exception("Failed to check spreadsheet access")
+        await status_msg.edit_text(f"Ошибка проверки доступа: {e}")
+        return
+
+    if not ok:
+        await status_msg.edit_text(
+            f"Не удалось получить доступ к таблице исследования «{study['name']}».\n\n"
+            f"{check_msg}",
+            parse_mode="HTML",
+        )
+        return
+
     await db.link_group_to_study(study_id, chat.id)
 
-    await message.reply_html(
+    await status_msg.edit_text(
         f"Группа привязана к исследованию: <b>{study['name']}</b>\n"
-        f"Теперь используйте /setup для регистрации участников."
+        f"{check_msg}\n\n"
+        f"Теперь используйте /setup для регистрации участников.",
+        parse_mode="HTML",
     )
     logger.info(
         "Group %d linked to study %d (%s) by admin %d",
