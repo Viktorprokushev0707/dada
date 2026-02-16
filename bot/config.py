@@ -36,6 +36,8 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
+    _cached_creds_path: str | None = None
+
     def get_google_credentials_path(self) -> str:
         """Return path to Google service account JSON.
 
@@ -43,6 +45,9 @@ class Settings(BaseSettings):
         write it to a temp file and return that path.
         Otherwise return GOOGLE_SERVICE_ACCOUNT_JSON path.
         """
+        if self._cached_creds_path is not None:
+            return self._cached_creds_path
+
         if self.google_service_account_json_content:
             # Validate it's real JSON
             json.loads(self.google_service_account_json_content)
@@ -51,8 +56,11 @@ class Settings(BaseSettings):
             )
             tmp.write(self.google_service_account_json_content)
             tmp.close()
+            os.chmod(tmp.name, 0o600)
+            self._cached_creds_path = tmp.name
             return tmp.name
-        return str(self.google_service_account_json)
+        self._cached_creds_path = str(self.google_service_account_json)
+        return self._cached_creds_path
 
 
 settings = Settings()

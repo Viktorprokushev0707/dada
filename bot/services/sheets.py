@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import traceback
 
 import gspread
 
@@ -19,7 +21,9 @@ class SheetsService:
     def _get_client(self) -> gspread.Client:
         if self._gc is None:
             creds_path = settings.get_google_credentials_path()
+            logger.info("Loading Google credentials from: %s (exists=%s)", creds_path, os.path.exists(creds_path))
             self._gc = gspread.service_account(filename=creds_path)
+            logger.info("Google client initialized, email: %s", self._gc.auth.service_account_email)
         return self._gc
 
     def _get_spreadsheet(self, spreadsheet_id: str | None = None) -> gspread.Spreadsheet:
@@ -39,15 +43,33 @@ class SheetsService:
 
         Returns (success, message).
         """
+        # Step 1: Check credentials
         try:
             gc = self._get_client()
+            email = gc.auth.service_account_email
+        except FileNotFoundError as e:
+            logger.exception("Credentials file not found")
+            return False, (
+                "Файл credentials сервисного аккаунта не найден.\n"
+                f"Путь: {settings.google_service_account_json}\n"
+                "Проверьте переменную GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT в Railway."
+            )
+        except Exception as e:
+            tb = traceback.format_exc()
+            logger.error("Failed to init Google client: %s\n%s", repr(e), tb)
+            return False, (
+                f"Ошибка инициализации Google клиента:\n"
+                f"<code>{type(e).__name__}: {repr(e)}</code>\n\n"
+                "Проверьте GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT в Railway."
+            )
+
+        # Step 2: Check spreadsheet access
+        try:
             sp = gc.open_by_key(spreadsheet_id)
             title = sp.title
-            # Cache it for later use
             self._spreadsheets[spreadsheet_id] = sp
             return True, f"Доступ к таблице «{title}» подтверждён."
         except gspread.SpreadsheetNotFound:
-            email = self.get_service_account_email()
             return False, (
                 f"Таблица не найдена или нет доступа.\n"
                 f"Откройте таблицу в Google Sheets и дайте доступ "
@@ -55,9 +77,22 @@ class SheetsService:
                 f"<code>{email}</code>"
             )
         except gspread.exceptions.APIError as e:
-            return False, f"Ошибка Google API: {e}"
+            logger.exception("Google API error for spreadsheet %s", spreadsheet_id)
+            return False, (
+                f"Ошибка Google API:\n"
+                f"<code>{e}</code>\n\n"
+                f"Email сервисного аккаунта:\n"
+                f"<code>{email}</code>"
+            )
         except Exception as e:
-            return False, f"Ошибка подключения: {type(e).__name__}: {e}"
+            tb = traceback.format_exc()
+            logger.error("Spreadsheet access error: %s\n%s", repr(e), tb)
+            return False, (
+                f"Ошибка доступа к таблице:\n"
+                f"<code>{type(e).__name__}: {repr(e)}</code>\n\n"
+                f"Email сервисного аккаунта:\n"
+                f"<code>{email}</code>"
+            )
 
     def ensure_tab(self, tab_name: str, spreadsheet_id: str | None = None) -> None:
         """Create worksheet tab if it doesn't exist, with header row."""
