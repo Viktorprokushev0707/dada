@@ -58,26 +58,30 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Ensure unique tab name by appending user_id if needed
     tab_name_final = f"{tab_name}_{target_user.id}"
 
-    # Get active study for spreadsheet_id
-    active_study = await db.get_active_study()
-    spreadsheet_id = active_study["spreadsheet_id"] if active_study else None
-    study_id = active_study["id"] if active_study else None
-
-    if not active_study:
+    # Get study linked to this group
+    study = await db.get_study_for_chat(chat.id)
+    if not study:
         await message.reply_text(
-            "Нет активного исследования. Создайте исследование в админ-панели."
+            "Эта группа не привязана к исследованию.\n"
+            "Сначала привяжите группу: /link <ID исследования>\n"
+            "Список исследований можно посмотреть в админ-панели."
         )
         return
+
+    spreadsheet_id = study["spreadsheet_id"]
+    study_id = study["id"]
 
     # Create Google Sheets tab in study's spreadsheet
     try:
         await asyncio.to_thread(sheets_service.ensure_tab, tab_name_final, spreadsheet_id)
     except Exception:
-        logger.exception("Failed to create Sheets tab")
+        logger.exception("Failed to create Sheets tab for spreadsheet %s", spreadsheet_id)
         await message.reply_text(
-            "Участник зарегистрирован, но не удалось создать вкладку в Google Sheets. "
-            "Попробуйте /setup ещё раз позже."
+            "Не удалось создать вкладку в Google Sheets.\n"
+            "Проверьте, что сервисный аккаунт имеет доступ к таблице.\n"
+            "Попробуйте /setup ещё раз после проверки."
         )
+        return
 
     # Save to DB
     participant = await db.add_participant(
@@ -90,16 +94,18 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
     logger.info(
-        "Registered participant %s (id=%d) in chat %d by admin %d",
+        "Registered participant %s (id=%d) in chat %d for study %d by admin %d",
         display_name,
         target_user.id,
         chat.id,
+        study_id,
         admin_user.id,
     )
 
     target_mention = target_user.mention_html()
     await message.reply_html(
         f"Готово! Дневник для {target_mention} активирован.\n"
+        f"Исследование: <b>{study['name']}</b>\n"
         f"Все текстовые сообщения будут записываться в дневник.\n"
         f"Вкладка в таблице: <b>{tab_name_final}</b>"
     )

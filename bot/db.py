@@ -80,6 +80,14 @@ async def init_db() -> None:
             UNIQUE(participant_id, entry_date)
         );
 
+        CREATE TABLE IF NOT EXISTS study_groups (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            study_id  INTEGER NOT NULL REFERENCES studies(id),
+            chat_id   INTEGER NOT NULL,
+            linked_at TEXT    NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(chat_id)
+        );
+
         CREATE TABLE IF NOT EXISTS bot_settings (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -101,6 +109,20 @@ async def init_db() -> None:
             "ALTER TABLE participants ADD COLUMN study_id INTEGER REFERENCES studies(id)"
         )
         await db.commit()
+
+    # Migrate: create study_groups table if missing (for existing DBs)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS study_groups (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            study_id  INTEGER NOT NULL REFERENCES studies(id),
+            chat_id   INTEGER NOT NULL,
+            linked_at TEXT    NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(chat_id)
+        )
+        """
+    )
+    await db.commit()
 
     await _seed_default_settings()
     await _load_cache()
@@ -161,7 +183,6 @@ async def create_study(
     name: str, spreadsheet_id: str, chat_id: int | None = None
 ) -> dict[str, Any]:
     db = await get_db()
-    await db.execute("UPDATE studies SET is_active = 0")
     await db.execute(
         "INSERT INTO studies (name, spreadsheet_id, chat_id, is_active) VALUES (?, ?, ?, 1)",
         (name, spreadsheet_id, chat_id),
@@ -175,12 +196,88 @@ async def create_study(
 
 
 async def get_active_study() -> dict[str, Any] | None:
+    """Get any active study (for backward compat). Prefer get_study_for_chat."""
     db = await get_db()
     async with db.execute(
         "SELECT * FROM studies WHERE is_active = 1 ORDER BY id DESC LIMIT 1"
     ) as cursor:
         row = await cursor.fetchone()
     return dict(row) if row else None
+
+
+async def get_active_studies() -> list[dict[str, Any]]:
+    """Get all active studies."""
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM studies WHERE is_active = 1 ORDER BY created_at DESC"
+    ) as cursor:
+        rows = await cursor.fetchall()
+    return [dict(r) for r in rows]
+
+
+# ─── Study-Group linking ──────────────────────────────────────
+
+async def link_group_to_study(study_id: int, chat_id: int) -> None:
+    """Link a Telegram group (chat_id) to a study. One group = one study."""
+    db = await get_db()
+    await db.execute(
+        """
+        INSERT INTO study_groups (study_id, chat_id)
+        VALUES (?, ?)
+        ON CONFLICT(chat_id) DO UPDATE SET
+            study_id = excluded.study_id,
+            linked_at = datetime('now')
+        """,
+        (study_id, chat_id),
+    )
+    await db.commit()
+
+
+async def unlink_group(chat_id: int) -> None:
+    """Remove group-study link."""
+    db = await get_db()
+    await db.execute("DELETE FROM study_groups WHERE chat_id = ?", (chat_id,))
+    await db.commit()
+
+
+async def get_study_for_chat(chat_id: int) -> dict[str, Any] | None:
+    """Get the study linked to a specific chat/group."""
+    db = await get_db()
+    async with db.execute(
+        """
+        SELECT s.* FROM studies s
+        JOIN study_groups sg ON sg.study_id = s.id
+        WHERE sg.chat_id = ? AND s.is_active = 1
+        """,
+        (chat_id,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    return dict(row) if row else None
+
+
+async def get_study_groups(study_id: int) -> list[dict[str, Any]]:
+    """Get all groups linked to a study."""
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM study_groups WHERE study_id = ?", (study_id,)
+    ) as cursor:
+        rows = await cursor.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def get_all_study_group_links() -> list[dict[str, Any]]:
+    """Get all study-group links with study names."""
+    db = await get_db()
+    async with db.execute(
+        """
+        SELECT sg.*, s.name as study_name, s.is_active
+        FROM study_groups sg
+        JOIN studies s ON sg.study_id = s.id
+        ORDER BY sg.linked_at DESC
+        """
+    ) as cursor:
+        rows = await cursor.fetchall()
+    return [dict(r) for r in rows]
 
 
 async def get_all_studies() -> list[dict[str, Any]]:

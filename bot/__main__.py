@@ -17,6 +17,7 @@ from bot import db
 from bot.config import settings
 from bot.handlers.admin import list_command, status_command
 from bot.handlers.diary import collect_message
+from bot.handlers.link import link_command, unlink_command
 from bot.handlers.setup import setup_command
 from bot.services.scheduler import register_jobs
 from bot.web.app import create_web_app, start_web_app
@@ -57,6 +58,8 @@ async def run_bot(stop_event: asyncio.Event) -> None:
             )
 
             bot_app.add_handler(CommandHandler("setup", setup_command))
+            bot_app.add_handler(CommandHandler("link", link_command))
+            bot_app.add_handler(CommandHandler("unlink", unlink_command))
             bot_app.add_handler(CommandHandler("list", list_command))
             bot_app.add_handler(CommandHandler("status", status_command))
             bot_app.add_handler(

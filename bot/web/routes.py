@@ -57,13 +57,18 @@ async def logout(request: web.Request) -> web.Response:
 async def dashboard(request: web.Request) -> dict:
     date = today_str()
 
-    active_study = await db.get_active_study()
-    study_participants = []
-    if active_study:
-        participants = await db.get_study_participants(active_study["id"])
+    # Get all active studies with their participants and group links
+    active_studies = await db.get_active_studies()
+    studies_data = []
+    total_participants = 0
+
+    for study in active_studies:
+        participants = await db.get_study_participants(study["id"])
+        groups = await db.get_study_groups(study["id"])
+        study_parts = []
         for p in participants:
             messages = await db.get_today_messages(p["id"], date)
-            study_participants.append({
+            study_parts.append({
                 "id": p["id"],
                 "display_name": p["display_name"],
                 "telegram_user_id": p["telegram_user_id"],
@@ -72,17 +77,22 @@ async def dashboard(request: web.Request) -> dict:
                 "today_messages": len(messages),
                 "created_at": p["created_at"],
             })
+        total_participants += len(study_parts)
+        studies_data.append({
+            "study": study,
+            "participants": study_parts,
+            "groups": groups,
+        })
 
     all_studies = await db.get_all_studies()
     bot_settings = await db.get_all_settings()
 
     return {
-        "active_study": active_study,
-        "participants": study_participants,
+        "active_studies": studies_data,
         "all_studies": all_studies,
         "settings": bot_settings,
         "today": date,
-        "total_participants": len(study_participants),
+        "total_participants": total_participants,
     }
 
 

@@ -34,14 +34,14 @@ class SheetsService:
         spreadsheet = self._get_spreadsheet(spreadsheet_id)
         try:
             spreadsheet.worksheet(tab_name)
-            logger.info("Tab '%s' already exists", tab_name)
+            logger.info("Tab '%s' already exists in spreadsheet %s", tab_name, spreadsheet_id)
         except gspread.WorksheetNotFound:
             ws = spreadsheet.add_worksheet(
                 title=tab_name, rows=1000, cols=5
             )
             ws.update([["Дата", "Время", "Статус", "Дневник"]], "A1:D1")
             ws.format("A1:D1", {"textFormat": {"bold": True}})
-            logger.info("Created tab '%s'", tab_name)
+            logger.info("Created tab '%s' in spreadsheet %s", tab_name, spreadsheet_id)
 
     def append_entry(
         self,

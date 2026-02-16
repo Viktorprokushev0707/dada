@@ -4,47 +4,71 @@
 
 {% block content %}
 
-{# ── ACTIVE STUDY ─────────────────────────────────────────── #}
-{% if active_study %}
+{# ── GLOBAL STATS ─────────────────────────────────────────── #}
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="label">Активных исследований</div>
+        <div class="value">{{ active_studies | length }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Всего участников</div>
+        <div class="value">{{ total_participants }}</div>
+    </div>
+</div>
+
+{# ── ACTIVE STUDIES ───────────────────────────────────────── #}
+{% if active_studies %}
+{% for sd in active_studies %}
 <div class="card study-active">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
         <div>
-            <div class="section-title" style="border: none; padding: 0; margin: 0;">Активное исследование</div>
-            <h2 style="margin: 0.25rem 0 0.5rem;">{{ active_study.name }}</h2>
+            <div class="section-title" style="border: none; padding: 0; margin: 0;">
+                Исследование #{{ sd.study.id }}
+            </div>
+            <h2 style="margin: 0.25rem 0 0.5rem;">{{ sd.study.name }}</h2>
         </div>
-        <form method="post" action="/study/{{ active_study.id }}/finish" style="margin: 0;"
-              onsubmit="return confirm('Завершить исследование? Участники перестанут записываться.')">
+        <form method="post" action="/study/{{ sd.study.id }}/finish" style="margin: 0;"
+              onsubmit="return confirm('Завершить исследование «{{ sd.study.name }}»? Новые участники не смогут регистрироваться.')">
             <button type="submit" class="btn btn-danger btn-sm">Завершить</button>
         </form>
     </div>
     <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.5rem;">
-        Таблица: <code style="background:#f3f4f6; padding: 2px 6px; border-radius: 4px;">{{ active_study.spreadsheet_id }}</code>
+        Таблица: <code style="background:#f3f4f6; padding: 2px 6px; border-radius: 4px;">{{ sd.study.spreadsheet_id }}</code>
     </div>
-    <div style="font-size: 0.85rem; color: #888;">
-        Создано: {{ active_study.created_at }}
+    <div style="font-size: 0.85rem; color: #888; margin-bottom: 0.75rem;">
+        Создано: {{ sd.study.created_at }}
     </div>
-</div>
 
-{# ── STATS ──────────────────────────────────────────────── #}
-<div class="stat-grid">
-    <div class="stat-card">
-        <div class="label">Участников</div>
-        <div class="value">{{ total_participants }}</div>
+    {# Groups linked to this study #}
+    <div style="margin-bottom: 0.75rem;">
+        <strong style="font-size: 0.85rem;">Привязанные группы:</strong>
+        {% if sd.groups %}
+            {% for g in sd.groups %}
+                <span class="badge badge-gray" style="margin-left: 0.25rem;">{{ g.chat_id }}</span>
+            {% endfor %}
+        {% else %}
+            <span style="font-size: 0.85rem; color: #999;">нет групп — используйте <code>/link {{ sd.study.id }}</code> в Telegram</span>
+        {% endif %}
     </div>
-    <div class="stat-card">
-        <div class="label">Написали сегодня</div>
-        <div class="value">{{ participants | selectattr('today_messages', 'gt', 0) | list | length }}</div>
-    </div>
-    <div class="stat-card">
-        <div class="label">Не написали сегодня</div>
-        <div class="value">{{ participants | selectattr('today_messages', 'eq', 0) | list | length }}</div>
-    </div>
-</div>
 
-{# ── PARTICIPANTS TABLE ─────────────────────────────────── #}
-<div class="card">
-    <h2>Участники — {{ today }}</h2>
-    {% if participants %}
+    {# Study stats #}
+    <div class="stat-grid" style="margin-bottom: 0.75rem;">
+        <div class="stat-card" style="padding: 0.75rem;">
+            <div class="label">Участников</div>
+            <div class="value" style="font-size: 1.25rem;">{{ sd.participants | length }}</div>
+        </div>
+        <div class="stat-card" style="padding: 0.75rem;">
+            <div class="label">Написали сегодня</div>
+            <div class="value" style="font-size: 1.25rem;">{{ sd.participants | selectattr('today_messages', 'gt', 0) | list | length }}</div>
+        </div>
+        <div class="stat-card" style="padding: 0.75rem;">
+            <div class="label">Не написали</div>
+            <div class="value" style="font-size: 1.25rem;">{{ sd.participants | selectattr('today_messages', 'eq', 0) | list | length }}</div>
+        </div>
+    </div>
+
+    {# Participants table #}
+    {% if sd.participants %}
     <table>
         <thead>
             <tr>
@@ -56,7 +80,7 @@
             </tr>
         </thead>
         <tbody>
-            {% for p in participants %}
+            {% for p in sd.participants %}
             <tr>
                 <td><strong>{{ p.display_name }}</strong></td>
                 <td style="font-size: 0.85rem; color: #888;">{{ p.chat_id }}</td>
@@ -74,22 +98,23 @@
         </tbody>
     </table>
     {% else %}
-    <p style="color: #888; text-align: center; padding: 2rem;">
-        Нет участников. Используйте /setup в группе Telegram, чтобы добавить участника.
+    <p style="color: #888; text-align: center; padding: 1rem;">
+        Нет участников. Используйте /setup в привязанной группе Telegram.
     </p>
     {% endif %}
 </div>
+{% endfor %}
 
 {% else %}
-{# ── NO ACTIVE STUDY ────────────────────────────────────── #}
+{# ── NO ACTIVE STUDIES ────────────────────────────────────── #}
 <div class="alert alert-warning">
-    Нет активного исследования. Создайте новое исследование ниже, чтобы начать работу.
+    Нет активных исследований. Создайте новое исследование ниже, чтобы начать работу.
 </div>
 {% endif %}
 
 {# ── NEW STUDY FORM ─────────────────────────────────────── #}
 <div class="card">
-    <div class="section-title">Начать новое исследование</div>
+    <div class="section-title">Создать новое исследование</div>
     <form method="post" action="/study/create">
         <div class="form-row">
             <div class="form-group">
@@ -102,10 +127,26 @@
             </div>
         </div>
         <p style="font-size: 0.8rem; color: #888; margin-bottom: 0.75rem;">
-            ID таблицы — это часть URL между /d/ и /edit. Предыдущее исследование будет завершено автоматически.
+            ID таблицы — часть URL между /d/ и /edit.
+            Можно создавать несколько исследований параллельно — каждое со своей таблицей.
         </p>
         <button type="submit" class="btn btn-primary">Создать исследование</button>
     </form>
+</div>
+
+{# ── HOW IT WORKS ─────────────────────────────────────────── #}
+<div class="card">
+    <div class="section-title">Как привязать группу к исследованию</div>
+    <ol style="font-size: 0.9rem; line-height: 1.8; color: #555; padding-left: 1.25rem;">
+        <li>Создайте исследование выше (запомните его <b>ID</b>)</li>
+        <li>Добавьте бота в Telegram-группу</li>
+        <li>В группе напишите: <code>/link ID</code> (например <code>/link 3</code>)</li>
+        <li>Теперь в этой группе /setup будет регистрировать участников в нужную таблицу</li>
+    </ol>
+    <p style="font-size: 0.85rem; color: #888; margin-top: 0.5rem;">
+        Одна группа = одно исследование. Чтобы переключить — повторите /link с другим ID.
+        Для отвязки: /unlink
+    </p>
 </div>
 
 {# ── SETTINGS ───────────────────────────────────────────── #}
@@ -150,10 +191,11 @@
 {# ── STUDIES HISTORY ────────────────────────────────────── #}
 {% if all_studies %}
 <div class="card">
-    <div class="section-title">История исследований</div>
+    <div class="section-title">Все исследования</div>
     <table>
         <thead>
             <tr>
+                <th>ID</th>
                 <th>Название</th>
                 <th>Таблица</th>
                 <th>Статус</th>
@@ -163,6 +205,7 @@
         <tbody>
             {% for s in all_studies %}
             <tr>
+                <td><strong>{{ s.id }}</strong></td>
                 <td><strong>{{ s.name }}</strong></td>
                 <td style="font-size: 0.8rem; color: #888; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                     {{ s.spreadsheet_id }}
