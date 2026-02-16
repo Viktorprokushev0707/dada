@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import traceback
@@ -23,8 +24,15 @@ class SheetsService:
             creds_path = settings.get_google_credentials_path()
             logger.info("Loading Google credentials from: %s (exists=%s)", creds_path, os.path.exists(creds_path))
             self._gc = gspread.service_account(filename=creds_path)
-            logger.info("Google client initialized, email: %s", self._gc.auth.service_account_email)
+            logger.info("Google client initialized, email: %s", self._get_email())
         return self._gc
+
+    def _get_email(self) -> str:
+        """Get service account email from credentials JSON file."""
+        creds_path = settings.get_google_credentials_path()
+        with open(creds_path) as f:
+            data = json.load(f)
+        return data.get("client_email", "unknown")
 
     def _get_spreadsheet(self, spreadsheet_id: str | None = None) -> gspread.Spreadsheet:
         sid = spreadsheet_id or settings.google_spreadsheet_id
@@ -35,8 +43,7 @@ class SheetsService:
 
     def get_service_account_email(self) -> str:
         """Return the service account email for sharing instructions."""
-        gc = self._get_client()
-        return gc.auth.service_account_email
+        return self._get_email()
 
     def check_access(self, spreadsheet_id: str) -> tuple[bool, str]:
         """Check if service account can access the spreadsheet.
@@ -46,7 +53,7 @@ class SheetsService:
         # Step 1: Check credentials
         try:
             gc = self._get_client()
-            email = gc.auth.service_account_email
+            email = self._get_email()
         except FileNotFoundError as e:
             logger.exception("Credentials file not found")
             return False, (
