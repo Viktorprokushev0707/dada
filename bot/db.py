@@ -37,6 +37,15 @@ async def init_db() -> None:
     db = await get_db()
     await db.executescript(
         """
+        CREATE TABLE IF NOT EXISTS studies (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            name            TEXT    NOT NULL,
+            spreadsheet_id  TEXT    NOT NULL,
+            chat_id         INTEGER,
+            is_active       INTEGER NOT NULL DEFAULT 1,
+            created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE IF NOT EXISTS participants (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             telegram_user_id INTEGER NOT NULL,
@@ -44,6 +53,7 @@ async def init_db() -> None:
             admin_user_id   INTEGER NOT NULL,
             display_name    TEXT    NOT NULL,
             sheet_tab_name  TEXT    NOT NULL,
+            study_id        INTEGER REFERENCES studies(id),
             created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
             active          INTEGER NOT NULL DEFAULT 1,
             UNIQUE(telegram_user_id, chat_id)
@@ -70,6 +80,11 @@ async def init_db() -> None:
             UNIQUE(participant_id, entry_date)
         );
 
+        CREATE TABLE IF NOT EXISTS bot_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_messages_participant_date
             ON messages(participant_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_diary_sync
@@ -77,7 +92,131 @@ async def init_db() -> None:
         """
     )
     await db.commit()
+
+    # Migrate: add study_id column if missing
+    try:
+        await db.execute("SELECT study_id FROM participants LIMIT 1")
+    except Exception:
+        await db.execute(
+            "ALTER TABLE participants ADD COLUMN study_id INTEGER REFERENCES studies(id)"
+        )
+        await db.commit()
+
+    await _seed_default_settings()
     await _load_cache()
+
+
+# ─── Settings helpers ─────────────────────────────────────────────
+
+DEFAULT_SETTINGS = {
+    "reminder_hour": str(settings.reminder_hour),
+    "reminder_minute": str(settings.reminder_minute),
+    "escalation_delay_minutes": str(settings.escalation_delay_minutes),
+    "reminder_text": "ты ещё не написал(а) дневник сегодня! ✏️",
+    "escalation_text": "так и не написал(а) дневник! ⚠️",
+}
+
+
+async def _seed_default_settings() -> None:
+    db = await get_db()
+    for key, value in DEFAULT_SETTINGS.items():
+        await db.execute(
+            "INSERT OR IGNORE INTO bot_settings (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+    await db.commit()
+
+
+async def get_setting(key: str) -> str:
+    db = await get_db()
+    async with db.execute(
+        "SELECT value FROM bot_settings WHERE key = ?", (key,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row:
+        return row["value"]
+    return DEFAULT_SETTINGS.get(key, "")
+
+
+async def get_all_settings() -> dict[str, str]:
+    db = await get_db()
+    async with db.execute("SELECT key, value FROM bot_settings") as cursor:
+        rows = await cursor.fetchall()
+    return {r["key"]: r["value"] for r in rows}
+
+
+async def update_setting(key: str, value: str) -> None:
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO bot_settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    await db.commit()
+
+
+# ─── Studies ──────────────────────────────────────────────────────
+
+async def create_study(
+    name: str, spreadsheet_id: str, chat_id: int | None = None
+) -> dict[str, Any]:
+    db = await get_db()
+    await db.execute("UPDATE studies SET is_active = 0")
+    await db.execute(
+        "INSERT INTO studies (name, spreadsheet_id, chat_id, is_active) VALUES (?, ?, ?, 1)",
+        (name, spreadsheet_id, chat_id),
+    )
+    await db.commit()
+    async with db.execute(
+        "SELECT * FROM studies ORDER BY id DESC LIMIT 1"
+    ) as cursor:
+        row = await cursor.fetchone()
+    return dict(row)
+
+
+async def get_active_study() -> dict[str, Any] | None:
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM studies WHERE is_active = 1 ORDER BY id DESC LIMIT 1"
+    ) as cursor:
+        row = await cursor.fetchone()
+    return dict(row) if row else None
+
+
+async def get_all_studies() -> list[dict[str, Any]]:
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM studies ORDER BY created_at DESC"
+    ) as cursor:
+        rows = await cursor.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def get_study_by_id(study_id: int) -> dict[str, Any] | None:
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM studies WHERE id = ?", (study_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    return dict(row) if row else None
+
+
+async def finish_study(study_id: int) -> None:
+    db = await get_db()
+    await db.execute(
+        "UPDATE studies SET is_active = 0 WHERE id = ?", (study_id,)
+    )
+    await db.commit()
+
+
+async def get_study_participants(study_id: int) -> list[dict[str, Any]]:
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM participants WHERE study_id = ? AND active = 1",
+        (study_id,),
+    ) as cursor:
+        rows = await cursor.fetchall()
+    return [dict(r) for r in rows]
 
 
 async def _load_cache() -> None:
@@ -99,20 +238,22 @@ async def add_participant(
     admin_user_id: int,
     display_name: str,
     sheet_tab_name: str,
+    study_id: int | None = None,
 ) -> dict[str, Any]:
     db = await get_db()
     await db.execute(
         """
         INSERT INTO participants
-            (telegram_user_id, chat_id, admin_user_id, display_name, sheet_tab_name)
-        VALUES (?, ?, ?, ?, ?)
+            (telegram_user_id, chat_id, admin_user_id, display_name, sheet_tab_name, study_id)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(telegram_user_id, chat_id) DO UPDATE SET
             admin_user_id = excluded.admin_user_id,
             display_name = excluded.display_name,
             sheet_tab_name = excluded.sheet_tab_name,
+            study_id = excluded.study_id,
             active = 1
         """,
-        (telegram_user_id, chat_id, admin_user_id, display_name, sheet_tab_name),
+        (telegram_user_id, chat_id, admin_user_id, display_name, sheet_tab_name, study_id),
     )
     await db.commit()
 
@@ -209,7 +350,7 @@ async def get_unsynced_entries() -> list[dict[str, Any]]:
     db = await get_db()
     async with db.execute(
         """
-        SELECT de.*, p.sheet_tab_name, p.display_name
+        SELECT de.*, p.sheet_tab_name, p.display_name, p.study_id
         FROM diary_entries de
         JOIN participants p ON de.participant_id = p.id
         WHERE de.synced_to_sheet = 0 AND de.status != 'pending'

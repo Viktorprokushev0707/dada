@@ -58,9 +58,20 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Ensure unique tab name by appending user_id if needed
     tab_name_final = f"{tab_name}_{target_user.id}"
 
-    # Create Google Sheets tab
+    # Get active study for spreadsheet_id
+    active_study = await db.get_active_study()
+    spreadsheet_id = active_study["spreadsheet_id"] if active_study else None
+    study_id = active_study["id"] if active_study else None
+
+    if not active_study:
+        await message.reply_text(
+            "Нет активного исследования. Создайте исследование в админ-панели."
+        )
+        return
+
+    # Create Google Sheets tab in study's spreadsheet
     try:
-        await asyncio.to_thread(sheets_service.ensure_tab, tab_name_final)
+        await asyncio.to_thread(sheets_service.ensure_tab, tab_name_final, spreadsheet_id)
     except Exception:
         logger.exception("Failed to create Sheets tab")
         await message.reply_text(
@@ -75,6 +86,7 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         admin_user_id=admin_user.id,
         display_name=display_name,
         sheet_tab_name=tab_name_final,
+        study_id=study_id,
     )
 
     logger.info(

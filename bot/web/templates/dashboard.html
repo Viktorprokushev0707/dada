@@ -3,6 +3,29 @@
 {% block title %}Dashboard — Панель управления{% endblock %}
 
 {% block content %}
+
+{# ── ACTIVE STUDY ─────────────────────────────────────────── #}
+{% if active_study %}
+<div class="card study-active">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+        <div>
+            <div class="section-title" style="border: none; padding: 0; margin: 0;">Активное исследование</div>
+            <h2 style="margin: 0.25rem 0 0.5rem;">{{ active_study.name }}</h2>
+        </div>
+        <form method="post" action="/study/{{ active_study.id }}/finish" style="margin: 0;"
+              onsubmit="return confirm('Завершить исследование? Участники перестанут записываться.')">
+            <button type="submit" class="btn btn-danger btn-sm">Завершить</button>
+        </form>
+    </div>
+    <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.5rem;">
+        Таблица: <code style="background:#f3f4f6; padding: 2px 6px; border-radius: 4px;">{{ active_study.spreadsheet_id }}</code>
+    </div>
+    <div style="font-size: 0.85rem; color: #888;">
+        Создано: {{ active_study.created_at }}
+    </div>
+</div>
+
+{# ── STATS ──────────────────────────────────────────────── #}
 <div class="stat-grid">
     <div class="stat-card">
         <div class="label">Участников</div>
@@ -18,6 +41,7 @@
     </div>
 </div>
 
+{# ── PARTICIPANTS TABLE ─────────────────────────────────── #}
 <div class="card">
     <h2>Участники — {{ today }}</h2>
     {% if participants %}
@@ -50,7 +74,112 @@
         </tbody>
     </table>
     {% else %}
-    <p style="color: #888; text-align: center; padding: 2rem;">Нет зарегистрированных участников</p>
+    <p style="color: #888; text-align: center; padding: 2rem;">
+        Нет участников. Используйте /setup в группе Telegram, чтобы добавить участника.
+    </p>
     {% endif %}
 </div>
+
+{% else %}
+{# ── NO ACTIVE STUDY ────────────────────────────────────── #}
+<div class="alert alert-warning">
+    Нет активного исследования. Создайте новое исследование ниже, чтобы начать работу.
+</div>
+{% endif %}
+
+{# ── NEW STUDY FORM ─────────────────────────────────────── #}
+<div class="card">
+    <div class="section-title">Начать новое исследование</div>
+    <form method="post" action="/study/create">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Название исследования</label>
+                <input type="text" name="name" placeholder="Например: Волна 3 — март 2026" required>
+            </div>
+            <div class="form-group">
+                <label>ID Google таблицы</label>
+                <input type="text" name="spreadsheet_id" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" required>
+            </div>
+        </div>
+        <p style="font-size: 0.8rem; color: #888; margin-bottom: 0.75rem;">
+            ID таблицы — это часть URL между /d/ и /edit. Предыдущее исследование будет завершено автоматически.
+        </p>
+        <button type="submit" class="btn btn-primary">Создать исследование</button>
+    </form>
+</div>
+
+{# ── SETTINGS ───────────────────────────────────────────── #}
+<div class="card">
+    <div class="section-title">Настройки бота</div>
+    <form method="post" action="/settings">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Час напоминания (0-23)</label>
+                <input type="number" name="reminder_hour" min="0" max="23"
+                       value="{{ settings.get('reminder_hour', '20') }}">
+            </div>
+            <div class="form-group">
+                <label>Минута напоминания (0-59)</label>
+                <input type="number" name="reminder_minute" min="0" max="59"
+                       value="{{ settings.get('reminder_minute', '0') }}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Задержка эскалации админу (минуты)</label>
+            <input type="number" name="escalation_delay_minutes" min="1" max="1440"
+                   value="{{ settings.get('escalation_delay_minutes', '60') }}">
+        </div>
+        <div class="form-group">
+            <label>Текст напоминания участнику</label>
+            <textarea name="reminder_text" rows="2">{{ settings.get('reminder_text', '') }}</textarea>
+            <p style="font-size: 0.75rem; color: #888; margin-top: 0.25rem;">
+                Имя участника добавляется автоматически перед текстом.
+            </p>
+        </div>
+        <div class="form-group">
+            <label>Текст эскалации админу</label>
+            <textarea name="escalation_text" rows="2">{{ settings.get('escalation_text', '') }}</textarea>
+            <p style="font-size: 0.75rem; color: #888; margin-top: 0.25rem;">
+                Формат: "Админ, [имя участника] [ваш текст]"
+            </p>
+        </div>
+        <button type="submit" class="btn btn-primary">Сохранить настройки</button>
+    </form>
+</div>
+
+{# ── STUDIES HISTORY ────────────────────────────────────── #}
+{% if all_studies %}
+<div class="card">
+    <div class="section-title">История исследований</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Название</th>
+                <th>Таблица</th>
+                <th>Статус</th>
+                <th>Создано</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in all_studies %}
+            <tr>
+                <td><strong>{{ s.name }}</strong></td>
+                <td style="font-size: 0.8rem; color: #888; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    {{ s.spreadsheet_id }}
+                </td>
+                <td>
+                    {% if s.is_active %}
+                        <span class="badge badge-green">активно</span>
+                    {% else %}
+                        <span class="badge badge-gray">завершено</span>
+                    {% endif %}
+                </td>
+                <td style="font-size: 0.85rem;">{{ s.created_at }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
 {% endblock %}

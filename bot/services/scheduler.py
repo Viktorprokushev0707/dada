@@ -64,23 +64,44 @@ def register_jobs(application: Application) -> None:
     )
 
 
+async def _get_reminder_settings() -> tuple[int, int, int, str, str]:
+    """Get current reminder settings from DB."""
+    s = await db.get_all_settings()
+    return (
+        int(s.get("reminder_hour", str(settings.reminder_hour))),
+        int(s.get("reminder_minute", str(settings.reminder_minute))),
+        int(s.get("escalation_delay_minutes", str(settings.escalation_delay_minutes))),
+        s.get("reminder_text", "ты ещё не написал(а) дневник сегодня! ✏️"),
+        s.get("escalation_text", "так и не написал(а) дневник! ⚠️"),
+    )
+
+
+async def _get_study_spreadsheet_id(study_id: int | None) -> str | None:
+    """Get spreadsheet_id for a given study."""
+    if study_id is None:
+        study = await db.get_active_study()
+    else:
+        study = await db.get_study_by_id(study_id)
+    return study["spreadsheet_id"] if study else None
+
+
 async def reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Check all participants for missing diaries and send reminders."""
     date = today_str()
     participants = await db.get_all_active_participants()
+    _, _, escalation_delay, reminder_text, _ = await _get_reminder_settings()
 
     for p in participants:
         try:
             messages = await db.get_today_messages(p["id"], date)
             if not messages:
-                # Send reminder mentioning participant
                 try:
                     await context.bot.send_message(
                         chat_id=p["chat_id"],
                         text=(
                             f'<a href="tg://user?id={p["telegram_user_id"]}">'
                             f'{p["display_name"]}</a>, '
-                            f"ты ещё не написал(а) дневник сегодня! ✏️"
+                            f"{reminder_text}"
                         ),
                         parse_mode="HTML",
                     )
@@ -91,10 +112,9 @@ async def reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
                         p["chat_id"],
                     )
 
-                # Schedule escalation
                 context.job_queue.run_once(
                     escalation_callback,
-                    when=timedelta(minutes=settings.escalation_delay_minutes),
+                    when=timedelta(minutes=escalation_delay),
                     data={
                         "participant_id": p["id"],
                         "chat_id": p["chat_id"],
@@ -113,6 +133,7 @@ async def escalation_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Escalate to admin if diary is still missing."""
     data = context.job.data
     messages = await db.get_today_messages(data["participant_id"], data["date"])
+    _, _, _, _, escalation_text = await _get_reminder_settings()
 
     if not messages:
         try:
@@ -122,7 +143,7 @@ async def escalation_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
                     f'<a href="tg://user?id={data["admin_user_id"]}">Админ</a>, '
                     f'<a href="tg://user?id={data["telegram_user_id"]}">'
                     f'{data["display_name"]}</a> '
-                    f"так и не написал(а) дневник! ⚠️"
+                    f"{escalation_text}"
                 ),
                 parse_mode="HTML",
             )
@@ -136,10 +157,8 @@ async def escalation_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def flush_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Flush daily messages into diary entries and sync to Sheets."""
     date = today_str()
-    tz = get_tz()
-    reminder_time = dt_time(
-        hour=settings.reminder_hour, minute=settings.reminder_minute
-    )
+    reminder_hour, reminder_minute, _, _, _ = await _get_reminder_settings()
+    reminder_time = dt_time(hour=reminder_hour, minute=reminder_minute)
     participants = await db.get_all_active_participants()
 
     for p in participants:
@@ -149,7 +168,6 @@ async def flush_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
             if messages:
                 full_text = "\n\n".join(m["message_text"] for m in messages)
                 first_time_str = messages[0]["created_at"]
-                # Parse time from SQLite datetime
                 try:
                     first_dt = datetime.strptime(first_time_str, "%Y-%m-%d %H:%M:%S")
                     first_time = first_dt.time()
@@ -175,7 +193,9 @@ async def flush_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
                 full_text=full_text,
             )
 
-            # Sync to Google Sheets
+            # Get spreadsheet_id for this participant's study
+            spreadsheet_id = await _get_study_spreadsheet_id(p.get("study_id"))
+
             try:
                 await asyncio.to_thread(
                     sheets_service.append_entry,
@@ -184,6 +204,7 @@ async def flush_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
                     entry_time,
                     status,
                     full_text or "(пусто)",
+                    spreadsheet_id,
                 )
                 await db.mark_synced(entry_id)
             except Exception:
@@ -191,7 +212,6 @@ async def flush_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
                     "Failed to sync entry %d to Sheets", entry_id
                 )
 
-            # Clean up processed messages
             await db.delete_day_messages(p["id"], date)
 
         except Exception:
@@ -208,6 +228,7 @@ async def retry_sync_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
 
     for entry in entries:
         try:
+            spreadsheet_id = await _get_study_spreadsheet_id(entry.get("study_id"))
             await asyncio.to_thread(
                 sheets_service.append_entry,
                 entry["sheet_tab_name"],
@@ -215,6 +236,7 @@ async def retry_sync_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
                 entry["entry_time"] or "",
                 entry["status"],
                 entry["full_text"] or "(пусто)",
+                spreadsheet_id,
             )
             await db.mark_synced(entry["id"])
             logger.info("Synced entry %d", entry["id"])

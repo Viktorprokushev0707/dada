@@ -19,6 +19,9 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/login", login_post)
     app.router.add_get("/logout", logout)
     app.router.add_get("/participant/{pid}", participant_detail)
+    app.router.add_post("/study/create", study_create)
+    app.router.add_post("/study/{sid}/finish", study_finish)
+    app.router.add_post("/settings", settings_save)
 
 
 @aiohttp_jinja2.template("login.html")
@@ -52,27 +55,68 @@ async def logout(request: web.Request) -> web.Response:
 @login_required
 @aiohttp_jinja2.template("dashboard.html")
 async def dashboard(request: web.Request) -> dict:
-    participants = await db.get_all_active_participants()
     date = today_str()
 
-    participant_data = []
-    for p in participants:
-        messages = await db.get_today_messages(p["id"], date)
-        participant_data.append({
-            "id": p["id"],
-            "display_name": p["display_name"],
-            "telegram_user_id": p["telegram_user_id"],
-            "chat_id": p["chat_id"],
-            "sheet_tab_name": p["sheet_tab_name"],
-            "today_messages": len(messages),
-            "created_at": p["created_at"],
-        })
+    active_study = await db.get_active_study()
+    study_participants = []
+    if active_study:
+        participants = await db.get_study_participants(active_study["id"])
+        for p in participants:
+            messages = await db.get_today_messages(p["id"], date)
+            study_participants.append({
+                "id": p["id"],
+                "display_name": p["display_name"],
+                "telegram_user_id": p["telegram_user_id"],
+                "chat_id": p["chat_id"],
+                "sheet_tab_name": p["sheet_tab_name"],
+                "today_messages": len(messages),
+                "created_at": p["created_at"],
+            })
+
+    all_studies = await db.get_all_studies()
+    bot_settings = await db.get_all_settings()
 
     return {
-        "participants": participant_data,
+        "active_study": active_study,
+        "participants": study_participants,
+        "all_studies": all_studies,
+        "settings": bot_settings,
         "today": date,
-        "total_participants": len(participants),
+        "total_participants": len(study_participants),
     }
+
+
+@login_required
+async def study_create(request: web.Request) -> web.Response:
+    data = await request.post()
+    name = data.get("name", "").strip()
+    spreadsheet_id = data.get("spreadsheet_id", "").strip()
+
+    if not name or not spreadsheet_id:
+        raise web.HTTPFound("/")
+
+    await db.create_study(name=name, spreadsheet_id=spreadsheet_id)
+    raise web.HTTPFound("/")
+
+
+@login_required
+async def study_finish(request: web.Request) -> web.Response:
+    sid = int(request.match_info["sid"])
+    await db.finish_study(sid)
+    raise web.HTTPFound("/")
+
+
+@login_required
+async def settings_save(request: web.Request) -> web.Response:
+    data = await request.post()
+
+    for key in ("reminder_hour", "reminder_minute", "escalation_delay_minutes",
+                "reminder_text", "escalation_text"):
+        value = data.get(key, "").strip()
+        if value:
+            await db.update_setting(key, value)
+
+    raise web.HTTPFound("/")
 
 
 @login_required
@@ -81,7 +125,6 @@ async def participant_detail(request: web.Request) -> dict:
     pid = int(request.match_info["pid"])
     date = today_str()
 
-    # Get participant info
     conn = await db.get_db()
     async with conn.execute(
         "SELECT * FROM participants WHERE id = ?", (pid,)
@@ -92,11 +135,8 @@ async def participant_detail(request: web.Request) -> dict:
         raise web.HTTPNotFound()
 
     participant = dict(row)
-
-    # Get today's messages
     today_messages = await db.get_today_messages(pid, date)
 
-    # Get recent diary entries (last 30)
     async with conn.execute(
         """
         SELECT * FROM diary_entries
